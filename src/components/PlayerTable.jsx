@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Table, 
   TableBody, 
@@ -12,13 +12,17 @@ import {
   Select, 
   MenuItem, 
   TableSortLabel,
-  Tooltip
+  Tooltip,
+  IconButton
 } from '@mui/material';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 
 const PlayerTable = ({ players, onPlayerDrafted, onPlayerUndrafted, teams, playersPerTeam }) => {
   const [draftInfo, setDraftInfo] = useState({});
   const [orderBy, setOrderBy] = useState('TOTAL');
   const [order, setOrder] = useState('desc');
+  const [minimized, setMinimized] = useState(false);
 
   const handleDraftPlayer = (player) => {
     const info = draftInfo[player.PLAYER] || {};
@@ -45,12 +49,11 @@ const PlayerTable = ({ players, onPlayerDrafted, onPlayerUndrafted, teams, playe
     setOrderBy(property);
   };
 
-  const sortedPlayers = React.useMemo(() => {
+  const sortedPlayers = useMemo(() => {
     return [...players].sort((a, b) => {
       let aValue = a[orderBy];
       let bValue = b[orderBy];
 
-      // For TO, we want higher values to be considered worse
       if (orderBy === 'TO') {
         return order === 'asc' ? bValue - aValue : aValue - bValue;
       }
@@ -69,12 +72,19 @@ const PlayerTable = ({ players, onPlayerDrafted, onPlayerUndrafted, teams, playe
     handleRequestSort(property);
   };
 
+  const toggleMinimize = () => {
+    setMinimized(!minimized);
+  };
+
   return (
     <TableContainer component={Paper} sx={{ mb: 4 }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             <TableCell>
+              <IconButton onClick={toggleMinimize} size="small">
+                {minimized ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+              </IconButton>
               <TableSortLabel
                 active={orderBy === 'PLAYER'}
                 direction={orderBy === 'PLAYER' ? order : 'asc'}
@@ -195,7 +205,15 @@ const PlayerTable = ({ players, onPlayerDrafted, onPlayerUndrafted, teams, playe
                 backgroundColor: 'rgba(0, 0, 0, 0.08)',
               },
             }}>
-              <TableCell>{player.PLAYER}</TableCell>
+              <TableCell>
+                {minimized ? (
+                  <Tooltip title={player.PLAYER}>
+                    <span>{player.PLAYER.substring(0, 3)}...</span>
+                  </Tooltip>
+                ) : (
+                  player.PLAYER
+                )}
+              </TableCell>
               <TableCell>{player.POS}</TableCell>
               <TableCell>{player.TEAM}</TableCell>
               <TableCell>{player.TOTAL.toFixed(2)}</TableCell>
