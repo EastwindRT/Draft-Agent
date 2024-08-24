@@ -33,7 +33,4 @@ export default defineConfig({
   optimizeDeps: {
     include: ['react', 'react-dom'],
   },
-  esbuild: {
-    jsxInject: `import React from 'react'`,
-  },
 })
