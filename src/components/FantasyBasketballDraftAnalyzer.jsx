@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Box, Typography, Container, Paper, Grid } from '@mui/material';
 import PlayerTable from './PlayerTable';
 import ControlPanel from './ControlPanel';
 import TeamList from './TeamList';
@@ -6,8 +7,7 @@ import GMStatsTable from './GMStatsTable';
 import DraftGraph from './DraftGraph';
 import SetupPage from './SetupPage';
 import { players } from '../data/players';
-import { analyzePlayer, calculateRemainingBudget } from '../utils/calculations';
-import { Typography, Box } from '@mui/material';
+import { analyzePlayer } from '../utils/calculations';
 
 const FantasyBasketballDraftAnalyzer = () => {
   const [isSetupComplete, setIsSetupComplete] = useState(false);
@@ -17,7 +17,6 @@ const FantasyBasketballDraftAnalyzer = () => {
   const [draftedPlayers, setDraftedPlayers] = useState({});
 
   const handleSetupComplete = (setupTeams, setupPlayersPerTeam) => {
-    console.log('Setup complete:', setupTeams, setupPlayersPerTeam); // Add this line for debugging
     setTeams(setupTeams.map(team => ({ 
       ...team, 
       players: [], 
@@ -114,43 +113,58 @@ const FantasyBasketballDraftAnalyzer = () => {
 
   const totalPlayersLeft = (teams.length * playersPerTeam) - Object.keys(draftedPlayers).length;
 
-  console.log('Render state:', { isSetupComplete, teams, playersPerTeam }); // Add this line for debugging
-
   if (!isSetupComplete) {
     return <SetupPage onSetupComplete={handleSetupComplete} />;
   }
 
   return (
-    <Box className="p-4">
-      <Typography variant="h2" component="h1" gutterBottom 
-        sx={{
-          fontWeight: 'bold',
-          color: '#1976d2',
-          textAlign: 'center',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.1)',
-          mb: 4
-        }}>
-        Fantasy Basketball Draft Analyzer
-      </Typography>
-      <ControlPanel
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-      />
-      <PlayerTable 
-        players={filteredPlayers} 
-        onPlayerDrafted={handlePlayerDrafted}
-        onPlayerUndrafted={handlePlayerUndrafted}
-        teams={teams}
-        playersPerTeam={playersPerTeam}
-      />
-      <TeamList 
-        teams={teams} 
-        playersPerTeam={playersPerTeam} 
-        totalPlayersLeft={totalPlayersLeft}
-      />
-      <GMStatsTable teams={teams} />
-      <DraftGraph teams={teams} />
-    </Box>
+    <Container maxWidth="xl">
+      <Box sx={{ my: 4 }}>
+        <Typography variant="h2" component="h1" gutterBottom align="center">
+          Fantasy Basketball Draft Analyzer
+        </Typography>
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Paper elevation={3} sx={{ p: 2 }}>
+              <ControlPanel
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+              />
+            </Paper>
+          </Grid>
+          <Grid item xs={12}>
+            <Paper elevation={3} sx={{ p: 2 }}>
+              <PlayerTable 
+                players={filteredPlayers} 
+                onPlayerDrafted={handlePlayerDrafted}
+                onPlayerUndrafted={handlePlayerUndrafted}
+                teams={teams}
+                playersPerTeam={playersPerTeam}
+              />
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 2 }}>
+              <TeamList 
+                teams={teams} 
+                playersPerTeam={playersPerTeam} 
+                totalPlayersLeft={totalPlayersLeft}
+              />
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 2 }}>
+              <GMStatsTable teams={teams} />
+            </Paper>
+          </Grid>
+          <Grid item xs={12}>
+            <Paper elevation={3} sx={{ p: 2 }}>
+              <DraftGraph teams={teams} />
+            </Paper>
+          </Grid>
+        </Grid>
+      </Box>
+    </Container>
   );
 };
 

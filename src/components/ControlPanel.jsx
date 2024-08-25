@@ -1,19 +1,39 @@
 import React from 'react';
-import { TextField, Box } from '@mui/material';
+import { TextField, Box, InputAdornment } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 
 const ControlPanel = ({ searchTerm, setSearchTerm }) => {
   return (
-    <Box className="mb-4">
+    <Box sx={{ mb: 3 }}>
       <TextField
+        fullWidth
+        variant="outlined"
         label="Search Player"
-        type="text"
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
-        placeholder="Enter player name"
-        fullWidth
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon />
+            </InputAdornment>
+          ),
+        }}
+        sx={{
+          '& .MuiOutlinedInput-root': {
+            '& fieldset': {
+              borderColor: 'primary.main',
+            },
+            '&:hover fieldset': {
+              borderColor: 'primary.light',
+            },
+            '&.Mui-focused fieldset': {
+              borderColor: 'primary.dark',
+            },
+          },
+        }}
       />
     </Box>
   );
 };
 
-export default ControlPanel;
+export default ControlPanel; 
