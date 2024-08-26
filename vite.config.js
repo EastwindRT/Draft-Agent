@@ -5,9 +5,9 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/auctionDraft/',
+  base: '/fantasy-basketball-bid/', // Make sure this matches your repository name
   build: {
-    outDir: 'dist/auctionDraft',
+    outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -32,5 +32,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['react', 'react-dom'],
+  },
+  esbuild: {
+    jsxInject: `import React from 'react'`,
   },
 })
