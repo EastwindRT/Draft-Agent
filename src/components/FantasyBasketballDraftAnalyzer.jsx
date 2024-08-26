@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Box, Typography, Container, Paper, Grid } from '@mui/material';
 import PlayerTable from './PlayerTable';
 import ControlPanel from './ControlPanel';

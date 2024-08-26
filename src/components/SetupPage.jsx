@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Box, Typography, Button, TextField, Container, Grid, Paper } from '@mui/material';
 
 const SetupPage = ({ onSetupComplete }) => {

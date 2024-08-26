@@ -5,7 +5,7 @@ import { resolve } from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/fantasy-basketball-bid/', // Make sure this matches your repository name
+  base: '/Draft-Agent/', // Make sure this matches your repository name
   build: {
     outDir: 'dist',
     emptyOutDir: true,

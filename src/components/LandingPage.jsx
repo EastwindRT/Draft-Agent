@@ -1,25 +1,49 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { Box, Typography, Button, Container, Grid } from '@mui/material';
 
 const LandingPage = () => {
   return (
-    <Box sx={{ minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        backgroundImage: 'url(/draftday.jpg)', // Path to your image in the public folder
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundColor: '#000', // Fallback color in case image doesn't load
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center',
+        color: '#fff', // White text color for visibility
+      }}
+    >
       <Container maxWidth="lg">
         <Box sx={{ pt: 8, pb: 6 }}>
           <Typography
             component="h1"
             variant="h2"
             align="center"
-            color="text.primary"
+            sx={{
+              fontWeight: 'bold',
+              textShadow: '2px 2px 4px rgba(0, 0, 0, 0.7)', // Stronger shadow for better readability
+            }}
             gutterBottom
           >
             The Draft Day
           </Typography>
-          <Typography variant="h5" align="center" color="text.secondary" paragraph>
+          <Typography
+            variant="h5"
+            align="center"
+            sx={{
+              textShadow: '2px 2px 4px rgba(0, 0, 0, 0.7)', // Stronger shadow for better readability
+              mb: 8, // Margin bottom to create space before buttons
+            }}
+            paragraph
+          >
             Choose your draft style and start building your dream team!
           </Typography>
-          <Box sx={{ mt: 4 }}>
+          <Box sx={{ mt: 8 }}> {/* Move buttons further down */}
             <Grid container spacing={2} justifyContent="center">
               <Grid item>
                 <Button
@@ -28,8 +52,11 @@ const LandingPage = () => {
                   variant="contained"
                   size="large"
                   sx={{
-                    backgroundColor: '#1976d2',
-                    '&:hover': { backgroundColor: '#115293' },
+                    color: '#1976d2', // Text color of the button
+                    backgroundColor: '#fff', // White button with blue text
+                    '&:hover': {
+                      backgroundColor: '#f5f5f5', // Slightly darker on hover
+                    },
                   }}
                 >
                   Auction Draft
@@ -42,8 +69,11 @@ const LandingPage = () => {
                   variant="contained"
                   size="large"
                   sx={{
-                    backgroundColor: '#388e3c',
-                    '&:hover': { backgroundColor: '#2e7d32' },
+                    color: '#388e3c', // Text color of the button
+                    backgroundColor: '#fff', // White button with green text
+                    '&:hover': {
+                      backgroundColor: '#f5f5f5', // Slightly darker on hover
+                    },
                   }}
                 >
                   Serpentine Draft

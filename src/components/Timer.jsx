@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Button, ButtonGroup, CircularProgress } from '@mui/material';
 
 const Timer = () => {
