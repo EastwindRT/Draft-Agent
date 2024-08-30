@@ -6,6 +6,7 @@ import Timer from './components/Timer';
 import SerpentineDraftAnalyzer from './SerpantineDraft';
 import FantasyBasketballDraftAnalyzer from './components/FantasyBasketballDraftAnalyzer';
 import Sidebar from './components/Sidebar';
+import NBASchedule from './components/NBASchedule'; // Import the new component
 
 const theme = createTheme({
   palette: {
@@ -34,6 +35,7 @@ function App() {
               <Route path="/timer" element={<Timer />} />
               <Route path="/serpentine-draft" element={<SerpentineDraftAnalyzer />} />
               <Route path="/auction-draft" element={<FantasyBasketballDraftAnalyzer />} />
+              <Route path="/nba-schedule" element={<NBASchedule />} /> {/* Add this new route */}
             </Routes>
           </Box>
         </Box>
