@@ -2,11 +2,16 @@ import { Link } from 'react-router-dom';
 import { Box, Typography, Button, Container, Grid } from '@mui/material';
 
 const LandingPage = () => {
+  const getImagePath = () => {
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    return `${baseUrl}draftday.jpg`.replace('//', '/');
+  };
+
   return (
     <Box
       sx={{
         minHeight: '100vh',
-        backgroundImage: 'url(/draftday.jpg)', // Path to your image in the public folder
+        backgroundImage: `url(${getImagePath()})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundColor: '#000', // Fallback color in case image doesn't load
@@ -16,6 +21,7 @@ const LandingPage = () => {
         alignItems: 'center',
         textAlign: 'center',
         color: '#fff', // White text color for visibility
+        position: 'relative', // For debugging text
       }}
     >
       <Container maxWidth="lg">
@@ -83,6 +89,22 @@ const LandingPage = () => {
           </Box>
         </Box>
       </Container>
+
+      {/* Debug information */}
+      <Typography 
+        variant="body2" 
+        sx={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          color: 'white', 
+          bgcolor: 'rgba(0,0,0,0.5)',
+          padding: '4px',
+          zIndex: 3
+        }}
+      >
+        Image path: {getImagePath()}
+      </Typography>
     </Box>
   );
 };

@@ -4,7 +4,8 @@ import HomeIcon from '@mui/icons-material/Home';
 import TimerIcon from '@mui/icons-material/Timer';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday'; // New icon for NBA Schedule
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import TwitterIcon from '@mui/icons-material/Twitter'; // New import for Twitter icon
 
 const Sidebar = () => {
   return (
@@ -49,6 +50,12 @@ const Sidebar = () => {
             <CalendarTodayIcon />
           </ListItemIcon>
           <ListItemText primary="NBA Schedule" />
+        </ListItem>
+        <ListItem button component={Link} to="/twitter-updates">
+          <ListItemIcon>
+            <TwitterIcon />
+          </ListItemIcon>
+          <ListItemText primary="Twitter Updates" />
         </ListItem>
       </List>
     </Drawer>

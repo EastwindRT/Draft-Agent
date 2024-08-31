@@ -1,12 +1,12 @@
 import { HashRouter as Router, Route, Routes } from 'react-router-dom';
 import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-
 import LandingPage from './components/LandingPage';
 import Timer from './components/Timer';
 import SerpentineDraftAnalyzer from './SerpantineDraft';
 import FantasyBasketballDraftAnalyzer from './components/FantasyBasketballDraftAnalyzer';
 import Sidebar from './components/Sidebar';
-import NBASchedule from './components/NBASchedule'; // Import the new component
+import NBASchedule from './components/NBASchedule';
+import TwitterUpdates from './components/TwitterUpdates'; // Import the new TwitterUpdates component
 
 const theme = createTheme({
   palette: {
@@ -35,7 +35,8 @@ function App() {
               <Route path="/timer" element={<Timer />} />
               <Route path="/serpentine-draft" element={<SerpentineDraftAnalyzer />} />
               <Route path="/auction-draft" element={<FantasyBasketballDraftAnalyzer />} />
-              <Route path="/nba-schedule" element={<NBASchedule />} /> {/* Add this new route */}
+              <Route path="/nba-schedule" element={<NBASchedule />} />
+              <Route path="/twitter-updates" element={<TwitterUpdates />} /> {/* Add this new route for TwitterUpdates */}
             </Routes>
           </Box>
         </Box>

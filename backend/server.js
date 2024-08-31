@@ -1,0 +1,109 @@
+import express from 'express';
+import { TwitterApi } from 'twitter-api-v2';
+import WebSocket from 'ws';
+import cors from 'cors';
+import pg from 'pg';
+import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// PostgreSQL setup
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+// Twitter API setup
+const client = new TwitterApi({
+  appKey: process.env.TWITTER_API_KEY,
+  appSecret: process.env.TWITTER_API_SECRET,
+  accessToken: process.env.TWITTER_ACCESS_TOKEN,
+  accessSecret: process.env.TWITTER_ACCESS_SECRET,
+});
+
+// Configure the Twitter accounts to monitor
+const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@TheAthletic'];
+
+// Fetch tweets from specified accounts
+async function fetchTweets() {
+  const tweets = [];
+  for (const account of ACCOUNTS_TO_FOLLOW) {
+    try {
+      const user = await client.v2.userByUsername(account.replace('@', ''));
+      const userTimeline = await client.v2.userTimeline(user.data.id, {
+        exclude: ['retweets', 'replies'],
+        max_results: 5,
+        'tweet.fields': ['created_at', 'author_id'],
+        expansions: ['author_id'],
+        'user.fields': ['username'],
+      });
+      tweets.push(...userTimeline.data.data.map(tweet => ({
+        ...tweet,
+        account: account
+      })));
+    } catch (error) {
+      console.error(`Error fetching tweets for ${account}:`, error);
+    }
+  }
+  return tweets;
+}
+
+// Server setup
+const server = http.createServer(app);
+
+// WebSocket setup
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+  console.log('Client connected');
+  ws.on('close', () => console.log('Client disconnected'));
+});
+
+// Periodically fetch tweets and broadcast to connected clients
+setInterval(async () => {
+  const tweets = await fetchTweets();
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(tweets));
+    }
+  });
+}, 60000); // Update every minute
+
+// API endpoint for searching tweets
+app.post('/api/search-tweets', async (req, res) => {
+  const { query } = req.body;
+  try {
+    const searchResults = await client.v2.search(query, {
+      'tweet.fields': ['created_at', 'author_id'],
+      expansions: ['author_id'],
+      'user.fields': ['username'],
+    });
+    res.json(searchResults.data);
+  } catch (error) {
+    console.error('Error searching tweets:', error);
+    res.status(500).json({ error: 'An error occurred while searching tweets' });
+  }
+});
+
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// The "catchall" handler: for any request that doesn't match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
