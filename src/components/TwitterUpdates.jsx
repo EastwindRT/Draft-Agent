@@ -9,10 +9,22 @@ const TwitterUpdates = () => {
 
   const connectWebSocket = useCallback(() => {
     console.log("Attempting to connect to WebSocket");
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    const port = process.env.NODE_ENV === 'production' ? '' : ':3002';
-    const ws = new WebSocket(`${protocol}//${host}${port}`);
+    
+    let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let host = window.location.host;
+    let wsUrl;
+
+    if (process.env.NODE_ENV === 'development') {
+      wsUrl = `${protocol}//localhost:3002`;
+    } else if (window.location.hostname.includes('replit.dev')) {
+      wsUrl = `wss://${host}`;
+    } else {
+      wsUrl = `${protocol}//${host}`;
+    }
+
+    console.log("Connecting to WebSocket URL:", wsUrl);
+
+    const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log("WebSocket connected");
@@ -29,7 +41,7 @@ const TwitterUpdates = () => {
     ws.onclose = (event) => {
       console.log("WebSocket disconnected:", event.code, event.reason);
       setIsConnected(false);
-      setTimeout(connectWebSocket, 5000); // Try to reconnect after 5 seconds
+      setTimeout(() => connectWebSocket(), 5000); // Try to reconnect after 5 seconds
     };
 
     ws.onmessage = (event) => {
