@@ -13,12 +13,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Twitter API setup
+// Twitter API setup with rate limiting
 const client = new TwitterApi({
   appKey: process.env.TWITTER_API_KEY,
   appSecret: process.env.TWITTER_API_SECRET,
   accessToken: process.env.TWITTER_ACCESS_TOKEN,
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
+});
+
+const rateLimitedClient = client.readOnly.rateLimitedRequest({
+  maxRetries: 3,
+  retryDelay: 60000,
 });
 
 // Configure the Twitter accounts to monitor
@@ -29,8 +34,8 @@ async function fetchTweets() {
   const tweets = [];
   for (const account of ACCOUNTS_TO_FOLLOW) {
     try {
-      const user = await client.v2.userByUsername(account.replace('@', ''));
-      const userTimeline = await client.v2.userTimeline(user.data.id, {
+      const user = await rateLimitedClient.v2.userByUsername(account.replace('@', ''));
+      const userTimeline = await rateLimitedClient.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
         max_results: 5,
         'tweet.fields': ['created_at', 'author_id'],
@@ -69,13 +74,13 @@ setInterval(async () => {
       client.send(JSON.stringify(tweets));
     }
   });
-}, 60000); // Update every minute
+}, 300000); // Update every 5 minutes
 
 // API endpoint for searching tweets
 app.post('/api/search-tweets', async (req, res) => {
   const { query } = req.body;
   try {
-    const searchResults = await client.v2.search(query, {
+    const searchResults = await rateLimitedClient.v2.search(query, {
       'tweet.fields': ['created_at', 'author_id'],
       expansions: ['author_id'],
       'user.fields': ['username'],
@@ -102,10 +107,13 @@ server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Log environment variables (for debugging, remove in production)
+// Log environment variables and paths (for debugging, remove in production)
 console.log('Environment variables:');
 console.log('TWITTER_API_KEY is set:', !!process.env.TWITTER_API_KEY);
 console.log('TWITTER_API_SECRET is set:', !!process.env.TWITTER_API_SECRET);
 console.log('TWITTER_ACCESS_TOKEN is set:', !!process.env.TWITTER_ACCESS_TOKEN);
 console.log('TWITTER_ACCESS_SECRET is set:', !!process.env.TWITTER_ACCESS_SECRET);
 console.log('PORT:', process.env.PORT);
+console.log('Current directory:', process.cwd());
+console.log('__dirname:', __dirname);
+console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'dist'));
