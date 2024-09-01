@@ -13,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Twitter API setup with rate limiting
+// Twitter API setup
 const client = new TwitterApi({
   appKey: process.env.TWITTER_API_KEY,
   appSecret: process.env.TWITTER_API_SECRET,
@@ -21,10 +21,24 @@ const client = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
-const rateLimitedClient = client.readOnly.rateLimitedRequest({
-  maxRetries: 3,
-  retryDelay: 60000,
-});
+// Manual rate limiting function
+const rateLimitedRequest = async (requestFunction) => {
+  const maxRetries = 3;
+  const retryDelay = 60000; // 1 minute
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await requestFunction();
+    } catch (error) {
+      if (error.code === 429 && attempt < maxRetries - 1) {
+        console.log(`Rate limit hit. Retrying in ${retryDelay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        throw error;
+      }
+    }
+  }
+};
 
 // Configure the Twitter accounts to monitor
 const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@TheAthletic'];
@@ -34,14 +48,14 @@ async function fetchTweets() {
   const tweets = [];
   for (const account of ACCOUNTS_TO_FOLLOW) {
     try {
-      const user = await rateLimitedClient.v2.userByUsername(account.replace('@', ''));
-      const userTimeline = await rateLimitedClient.v2.userTimeline(user.data.id, {
+      const user = await rateLimitedRequest(() => client.v2.userByUsername(account.replace('@', '')));
+      const userTimeline = await rateLimitedRequest(() => client.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
         max_results: 5,
         'tweet.fields': ['created_at', 'author_id'],
         expansions: ['author_id'],
         'user.fields': ['username'],
-      });
+      }));
       tweets.push(...userTimeline.data.data.map(tweet => ({
         ...tweet,
         account: account
@@ -80,11 +94,11 @@ setInterval(async () => {
 app.post('/api/search-tweets', async (req, res) => {
   const { query } = req.body;
   try {
-    const searchResults = await rateLimitedClient.v2.search(query, {
+    const searchResults = await rateLimitedRequest(() => client.v2.search(query, {
       'tweet.fields': ['created_at', 'author_id'],
       expansions: ['author_id'],
       'user.fields': ['username'],
-    });
+    }));
     res.json(searchResults.data);
   } catch (error) {
     console.error('Error searching tweets:', error);
@@ -117,3 +131,5 @@ console.log('PORT:', process.env.PORT);
 console.log('Current directory:', process.cwd());
 console.log('__dirname:', __dirname);
 console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'dist'));
+
+console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'public'));
