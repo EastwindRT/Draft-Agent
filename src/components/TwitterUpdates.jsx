@@ -1,23 +1,58 @@
-import { useState, useEffect } from 'react';
-import { TextField, Button, List, ListItem, ListItemText, Typography } from '@mui/material';
+import { useState, useEffect, useCallback } from 'react';
+import { TextField, Button, List, ListItem, ListItemText, Typography, Box } from '@mui/material';
 
 const TwitterUpdates = () => {
   const [tweets, setTweets] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
 
-  useEffect(() => {
-    // Use wss:// for secure WebSocket connection
+  const connectWebSocket = useCallback(() => {
+    console.log("Attempting to connect to WebSocket");
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ws = new WebSocket(`${protocol}//${host}`);
+    const host = window.location.hostname;
+    const port = process.env.NODE_ENV === 'production' ? '' : ':3002';
+    const ws = new WebSocket(`${protocol}//${host}${port}`);
 
-    ws.onmessage = (event) => {
-      const newTweets = JSON.parse(event.data);
-      setTweets(prevTweets => [...newTweets, ...prevTweets].slice(0, 10));
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+      setIsConnected(true);
+      setError(null);
     };
 
-    return () => ws.close();
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setError("Failed to connect to WebSocket");
+      setIsConnected(false);
+    };
+
+    ws.onclose = (event) => {
+      console.log("WebSocket disconnected:", event.code, event.reason);
+      setIsConnected(false);
+      setTimeout(connectWebSocket, 5000); // Try to reconnect after 5 seconds
+    };
+
+    ws.onmessage = (event) => {
+      console.log("Received WebSocket message:", event.data);
+      try {
+        const newTweets = JSON.parse(event.data);
+        setTweets(prevTweets => [...newTweets, ...prevTweets].slice(0, 10));
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
+        setError("Error processing tweets");
+      }
+    };
+
+    return ws;
   }, []);
+
+  useEffect(() => {
+    const ws = connectWebSocket();
+    return () => {
+      console.log("Closing WebSocket connection");
+      ws.close();
+    };
+  }, [connectWebSocket]);
 
   const handleSearch = async () => {
     try {
@@ -26,32 +61,49 @@ const TwitterUpdates = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: searchQuery }),
       });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
       setTweets(data);
+      setError(null);
     } catch (error) {
       console.error('Error searching tweets:', error);
+      setError("Failed to search tweets");
     }
   };
 
   return (
-    <div>
+    <Box sx={{ maxWidth: 600, margin: 'auto', padding: 2 }}>
       <TextField
+        fullWidth
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
         placeholder="Search tweets or hashtags"
+        margin="normal"
       />
-      <Button onClick={handleSearch}>Search</Button>
+      <Button variant="contained" onClick={handleSearch} sx={{ mt: 1, mb: 2 }}>
+        Search
+      </Button>
+      {error && (
+        <Typography color="error" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+      )}
+      <Typography color={isConnected ? "success" : "error"} sx={{ mb: 2 }}>
+        {isConnected ? "Connected to live updates" : "Disconnected from live updates"}
+      </Typography>
       <List>
-        {tweets.map(tweet => (
-          <ListItem key={tweet.id}>
+        {tweets.map((tweet, index) => (
+          <ListItem key={tweet.id || index} divider>
             <ListItemText
-              primary={tweet.account}
+              primary={tweet.account || "Unknown Account"}
               secondary={
                 <>
                   <Typography component="span" variant="body2">
                     {tweet.text}
                   </Typography>
-                  <Typography component="span" variant="caption">
+                  <Typography component="span" variant="caption" display="block">
                     {new Date(tweet.created_at).toLocaleString()}
                   </Typography>
                 </>
@@ -60,7 +112,7 @@ const TwitterUpdates = () => {
           </ListItem>
         ))}
       </List>
-    </div>
+    </Box>
   );
 };
 

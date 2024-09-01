@@ -2,10 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/Draft-Agent/', // Make sure this matches your repository name
+  base: '/Draft-Agent/',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -24,6 +23,26 @@ export default defineConfig({
     port: 3000,
     open: true,
     cors: true,
+    proxy: {
+      '^/api': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
+      },
+      '^/socket.io': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
+      },
+      '^/ws': {
+        target: 'ws://localhost:3002',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
+      },
+    },
   },
   css: {
     modules: {

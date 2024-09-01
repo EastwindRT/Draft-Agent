@@ -1,8 +1,7 @@
 import express from 'express';
 import { TwitterApi } from 'twitter-api-v2';
-import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 import cors from 'cors';
-import pg from 'pg';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -13,14 +12,6 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// PostgreSQL setup
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
-});
 
 // Twitter API setup
 const client = new TwitterApi({
@@ -57,22 +48,24 @@ async function fetchTweets() {
   return tweets;
 }
 
-// Server setup
 const server = http.createServer(app);
-
-// WebSocket setup
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
-  console.log('Client connected');
-  ws.on('close', () => console.log('Client disconnected'));
+  console.log('Client connected to WebSocket');
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+  ws.on('close', (code, reason) => {
+    console.log(`Client disconnected from WebSocket. Code: ${code}, Reason: ${reason}`);
+  });
 });
 
 // Periodically fetch tweets and broadcast to connected clients
 setInterval(async () => {
   const tweets = await fetchTweets();
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
+    if (client.readyState === WebSocketServer.OPEN) {
       client.send(JSON.stringify(tweets));
     }
   });
@@ -90,7 +83,7 @@ app.post('/api/search-tweets', async (req, res) => {
     res.json(searchResults.data);
   } catch (error) {
     console.error('Error searching tweets:', error);
-    res.status(500).json({ error: 'An error occurred while searching tweets' });
+    res.status(500).json({ error: 'An error occurred while searching tweets', details: error.message });
   }
 });
 
@@ -102,8 +95,17 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
-// Start the server
-const PORT = process.env.PORT || 3000;
+// Determine the correct port
+const PORT = process.env.PORT || 3002;
+
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Log environment variables (for debugging, remove in production)
+console.log('Environment variables:');
+console.log('TWITTER_API_KEY is set:', !!process.env.TWITTER_API_KEY);
+console.log('TWITTER_API_SECRET is set:', !!process.env.TWITTER_API_SECRET);
+console.log('TWITTER_ACCESS_TOKEN is set:', !!process.env.TWITTER_ACCESS_TOKEN);
+console.log('TWITTER_ACCESS_SECRET is set:', !!process.env.TWITTER_ACCESS_SECRET);
+console.log('PORT:', process.env.PORT);
