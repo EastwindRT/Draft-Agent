@@ -19,7 +19,12 @@ app.use((req, res, next) => {
   }
   next();
 });
-
+app.use((req, res, next) => {
+  if (req.url.endsWith('.js') || req.url.endsWith('.jsx')) {
+    res.type('application/javascript');
+  }
+  next();
+});
 // Twitter API setup
 const client = new TwitterApi({
   appKey: process.env.TWITTER_API_KEY,
