@@ -199,7 +199,23 @@ wss.on('connection', async (ws) => {
   ws.on('error', (error) => console.error('WebSocket error:', error));
   ws.on('close', () => console.log('Client disconnected from WebSocket'));
 });
-
+app.get('/api/test-twitter', async (req, res) => {
+  try {
+    const user = await client.v2.userByUsername('elonmusk');
+    const userTimeline = await client.v2.userTimeline(user.data.id, {
+      exclude: ['retweets', 'replies'],
+      max_results: 5,
+      'tweet.fields': ['created_at', 'author_id'],
+      expansions: ['author_id'],
+      'user.fields': ['username'],
+    });
+    console.log('Successfully fetched test tweets from Twitter API');
+    res.json(userTimeline.data);
+  } catch (error) {
+    console.error('Error fetching tweets:', error);
+    res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
+  }
+});
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get('*', (req, res) => {
