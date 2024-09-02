@@ -5,6 +5,7 @@ import cors from 'cors';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,12 +107,29 @@ app.post('/api/search-tweets', async (req, res) => {
   }
 });
 
-// Serve static files from the React app build directory
-app.use(express.static(path.join(__dirname, '..', 'build')));
+// Logging and directory setup
+const rootDir = path.join(__dirname, '..');
+const buildDir = path.join(rootDir, 'build');
 
-// The "catchall" handler: for any request that doesn't match one above, send back React's index.html file.
+console.log('Current directory:', process.cwd());
+console.log('Root directory:', rootDir);
+console.log('Build directory:', buildDir);
+console.log('Build directory exists:', fs.existsSync(buildDir));
+console.log('Contents of root directory:', fs.readdirSync(rootDir));
+
+// Serve static files with fallback
+const staticPath = fs.existsSync(buildDir) ? buildDir : rootDir;
+app.use(express.static(staticPath));
+
+// The "catchall" handler with error handling
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'build', 'index.html'));
+  const indexPath = path.join(staticPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    console.error(`index.html not found in ${staticPath}`);
+    res.status(404).send('Not found');
+  }
 });
 
 // Determine the correct port
@@ -121,14 +139,11 @@ server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Log environment variables and paths (for debugging, remove in production)
+// Log environment variables and paths
 console.log('Environment variables:');
 console.log('TWITTER_API_KEY is set:', !!process.env.TWITTER_API_KEY);
 console.log('TWITTER_API_SECRET is set:', !!process.env.TWITTER_API_SECRET);
 console.log('TWITTER_ACCESS_TOKEN is set:', !!process.env.TWITTER_ACCESS_TOKEN);
 console.log('TWITTER_ACCESS_SECRET is set:', !!process.env.TWITTER_ACCESS_SECRET);
 console.log('PORT:', process.env.PORT);
-console.log('Current directory:', process.cwd());
-console.log('__dirname:', __dirname);
-console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'build'));
-
+console.log('Attempting to serve static files from:', staticPath);
