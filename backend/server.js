@@ -70,8 +70,10 @@ async function createTweetsTable() {
 }
 
 async function fetchAndStoreTweets() {
+  console.log('Starting to fetch and store tweets...');
   for (const account of ACCOUNTS_TO_FOLLOW) {
     try {
+      console.log(`Fetching tweets for ${account}...`);
       const user = await client.v2.userByUsername(account.replace('@', ''));
       const userTimeline = await client.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
@@ -86,6 +88,8 @@ async function fetchAndStoreTweets() {
         account: account
       }));
 
+      console.log(`Fetched ${newTweets.length} tweets for ${account}`);
+
       // Store new tweets in the database
       const dbClient = await pool.connect();
       try {
@@ -97,8 +101,10 @@ async function fetchAndStoreTweets() {
           );
         }
         await dbClient.query('COMMIT');
+        console.log(`Stored tweets for ${account} in the database`);
       } catch (e) {
         await dbClient.query('ROLLBACK');
+        console.error(`Error storing tweets for ${account}:`, e);
         throw e;
       } finally {
         dbClient.release();
@@ -110,10 +116,12 @@ async function fetchAndStoreTweets() {
           wsClient.send(JSON.stringify(newTweets));
         }
       });
+      console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
     } catch (error) {
       console.error(`Error fetching tweets for ${account}:`, error);
     }
   }
+  console.log('Finished fetching and storing tweets');
 }
 
 // Initialize the database and start fetching tweets
@@ -121,7 +129,7 @@ async function initialize() {
   await testDatabaseConnection();
   await createTweetsTable();
   await fetchAndStoreTweets();
-  
+
   // Run fetchAndStoreTweets every 15 minutes
   setInterval(fetchAndStoreTweets, 15 * 60 * 1000);
 }
@@ -141,6 +149,39 @@ app.get('/api/tweets', async (req, res) => {
   }
 });
 
+// New test Twitter API endpoint
+app.get('/api/test-twitter', async (req, res) => {
+  try {
+    const user = await client.v2.userByUsername('elonmusk');
+    const userTimeline = await client.v2.userTimeline(user.data.id, {
+      exclude: ['retweets', 'replies'],
+      max_results: 5,
+      'tweet.fields': ['created_at', 'author_id'],
+      expansions: ['author_id'],
+      'user.fields': ['username'],
+    });
+    console.log('Successfully fetched test tweets from Twitter API');
+    res.json(userTimeline.data);
+  } catch (error) {
+    console.error('Error fetching tweets:', error);
+    res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
+  }
+});
+
+// New test database endpoint
+app.get('/api/test-database', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query('SELECT * FROM tweets ORDER BY created_at DESC LIMIT 10');
+    client.release();
+    console.log(`Successfully fetched ${result.rows.length} tweets from database`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error querying database:', err);
+    res.status(500).json({ error: 'Failed to query database', details: err.message });
+  }
+});
+
 // WebSocket connection handling
 wss.on('connection', async (ws) => {
   console.log('Client connected to WebSocket');
@@ -149,12 +190,13 @@ wss.on('connection', async (ws) => {
     const client = await pool.connect();
     const result = await client.query('SELECT * FROM tweets WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC');
     ws.send(JSON.stringify(result.rows));
+    console.log(`Sent ${result.rows.length} tweets to new WebSocket client`);
     client.release();
   } catch (err) {
     console.error('Error sending initial tweets to WebSocket client:', err);
   }
-  
-  ws.on('error', console.error);
+
+  ws.on('error', (error) => console.error('WebSocket error:', error));
   ws.on('close', () => console.log('Client disconnected from WebSocket'));
 });
 
