@@ -31,6 +31,16 @@ const client = new TwitterApi({
 
 const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@TheAthletic'];
 
+async function testDatabaseConnection() {
+  try {
+    const client = await pool.connect();
+    console.log('Successfully connected to the database');
+    client.release();
+  } catch (err) {
+    console.error('Error connecting to the database:', err);
+  }
+}
+
 async function createTweetsTable() {
   const client = await pool.connect();
   try {
@@ -97,14 +107,17 @@ async function fetchAndStoreTweets() {
   }
 }
 
-// Create tweets table on startup
-createTweetsTable();
+// Initialize the database and start fetching tweets
+async function initialize() {
+  await testDatabaseConnection();
+  await createTweetsTable();
+  await fetchAndStoreTweets();
+  
+  // Run fetchAndStoreTweets every 15 minutes
+  setInterval(fetchAndStoreTweets, 15 * 60 * 1000);
+}
 
-// Run fetchAndStoreTweets every 15 minutes
-setInterval(fetchAndStoreTweets, 15 * 60 * 1000);
-
-// Initial fetch
-fetchAndStoreTweets();
+initialize();
 
 // API endpoint to get tweets from the last 24 hours
 app.get('/api/tweets', async (req, res) => {
