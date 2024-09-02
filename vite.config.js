@@ -4,9 +4,8 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/Draft-Agent/',
   build: {
-    outDir: 'dist',
+    outDir: 'build',  // Changed from 'dist' to 'build'
     emptyOutDir: true,
     rollupOptions: {
       input: {
@@ -21,28 +20,6 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true,
-    cors: true,
-    proxy: {
-      '^/api': {
-        target: 'http://localhost:3002',
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
-      },
-      '^/socket.io': {
-        target: 'http://localhost:3002',
-        changeOrigin: true,
-        secure: false,
-        ws: true,
-        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
-      },
-      '^/ws': {
-        target: 'ws://localhost:3002',
-        ws: true,
-        rewrite: (path) => path.replace(/^\/Draft-Agent/, '')
-      },
-    },
   },
   css: {
     modules: {

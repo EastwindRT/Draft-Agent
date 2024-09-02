@@ -13,6 +13,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  if (req.url.endsWith('.js')) {
+    res.type('application/javascript');
+  }
+  next();
+});
 
 // Twitter API setup
 const client = new TwitterApi({
@@ -83,12 +89,16 @@ wss.on('connection', (ws) => {
 
 // Periodically fetch tweets and broadcast to connected clients
 setInterval(async () => {
-  const tweets = await fetchTweets();
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocketServer.OPEN) {
-      client.send(JSON.stringify(tweets));
-    }
-  });
+  try {
+    const tweets = await fetchTweets();
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocketServer.OPEN) {
+        client.send(JSON.stringify(tweets));
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching or broadcasting tweets:', error);
+  }
 }, 300000); // Update every 5 minutes
 
 // API endpoint for searching tweets
@@ -105,6 +115,11 @@ app.post('/api/search-tweets', async (req, res) => {
     console.error('Error searching tweets:', error);
     res.status(500).json({ error: 'An error occurred while searching tweets', details: error.message });
   }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK' });
 });
 
 // Logging and directory setup
