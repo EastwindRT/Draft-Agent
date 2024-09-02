@@ -69,12 +69,11 @@ async function createTweetsTable() {
   }
 }
 
-async function fetchAndStoreTweets() {
-  console.log('Starting to fetch and store tweets...');
-  for (const account of ACCOUNTS_TO_FOLLOW) {
+async function fetchTweetsWithBackoff(username, maxRetries = 5) {
+  let retries = 0;
+  while (retries < maxRetries) {
     try {
-      console.log(`Fetching tweets for ${account}...`);
-      const user = await client.v2.userByUsername(account.replace('@', ''));
+      const user = await client.v2.userByUsername(username);
       const userTimeline = await client.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
         max_results: 100,
@@ -82,11 +81,30 @@ async function fetchAndStoreTweets() {
         expansions: ['author_id'],
         'user.fields': ['username'],
       });
-
-      const newTweets = userTimeline.data.data.map(tweet => ({
+      return userTimeline.data.data.map(tweet => ({
         ...tweet,
-        account: account
+        account: `@${username}`
       }));
+    } catch (error) {
+      if (error.code === 429) {
+        retries++;
+        const delay = Math.pow(2, retries) * 1000; // Exponential backoff
+        console.log(`Rate limited. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error('Max retries reached. Unable to fetch tweets.');
+}
+
+async function fetchAndStoreTweets() {
+  console.log('Starting to fetch and store tweets...');
+  for (const account of ACCOUNTS_TO_FOLLOW) {
+    try {
+      console.log(`Fetching tweets for ${account}...`);
+      const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
 
       console.log(`Fetched ${newTweets.length} tweets for ${account}`);
 
@@ -117,6 +135,9 @@ async function fetchAndStoreTweets() {
         }
       });
       console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
+
+      // Add a delay between requests to different accounts
+      await new Promise(resolve => setTimeout(resolve, 5000));
     } catch (error) {
       console.error(`Error fetching tweets for ${account}:`, error);
     }
@@ -130,8 +151,8 @@ async function initialize() {
   await createTweetsTable();
   await fetchAndStoreTweets();
 
-  // Run fetchAndStoreTweets every 15 minutes
-  setInterval(fetchAndStoreTweets, 15 * 60 * 1000);
+  // Run fetchAndStoreTweets every 30 minutes
+  setInterval(fetchAndStoreTweets, 30 * 60 * 1000);
 }
 
 initialize();
@@ -152,16 +173,9 @@ app.get('/api/tweets', async (req, res) => {
 // New test Twitter API endpoint
 app.get('/api/test-twitter', async (req, res) => {
   try {
-    const user = await client.v2.userByUsername('elonmusk');
-    const userTimeline = await client.v2.userTimeline(user.data.id, {
-      exclude: ['retweets', 'replies'],
-      max_results: 5,
-      'tweet.fields': ['created_at', 'author_id'],
-      expansions: ['author_id'],
-      'user.fields': ['username'],
-    });
+    const tweets = await fetchTweetsWithBackoff('elonmusk');
     console.log('Successfully fetched test tweets from Twitter API');
-    res.json(userTimeline.data);
+    res.json(tweets);
   } catch (error) {
     console.error('Error fetching tweets:', error);
     res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });

@@ -1,153 +1,226 @@
-import { useState, useEffect, useCallback } from 'react';
-import { TextField, Button, List, ListItem, ListItemText, Typography, Box, CircularProgress } from '@mui/material';
+import express from 'express';
+import { TwitterApi } from 'twitter-api-v2';
+import { WebSocketServer } from 'ws';
+import http from 'http';
+import cors from 'cors';
+import pkg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const TwitterUpdates = () => {
-  const [tweets, setTweets] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [error, setError] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+const { Pool } = pkg;
 
-  const fetchTweets = async () => {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, '../build')));
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+// PostgreSQL setup
+const pool = new Pool({
+  connectionString: process.env.EXTERNAL_DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+// Twitter API setup
+const client = new TwitterApi({
+  appKey: process.env.TWITTER_API_KEY,
+  appSecret: process.env.TWITTER_API_SECRET,
+  accessToken: process.env.TWITTER_ACCESS_TOKEN,
+  accessSecret: process.env.TWITTER_ACCESS_SECRET,
+});
+
+const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@Ontheblock09', '@elonmusk', '@wojespn'];
+
+async function testDatabaseConnection() {
+  try {
+    const client = await pool.connect();
+    console.log('Successfully connected to the database');
+    client.release();
+  } catch (err) {
+    console.error('Error connecting to the database:', err);
+  }
+}
+
+async function createTweetsTable() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tweets (
+        id TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL,
+        account TEXT NOT NULL
+      )
+    `);
+    console.log('Tweets table created successfully');
+  } catch (err) {
+    console.error('Error creating tweets table:', err);
+  } finally {
+    client.release();
+  }
+}
+
+async function fetchTweetsWithBackoff(username, maxRetries = 5) {
+  let retries = 0;
+  while (retries < maxRetries) {
     try {
-      setIsLoading(true);
-      const response = await fetch('/api/tweets');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setTweets(data);
-      setError(null);
+      const user = await client.v2.userByUsername(username);
+      const userTimeline = await client.v2.userTimeline(user.data.id, {
+        exclude: ['retweets', 'replies'],
+        max_results: 100,
+        'tweet.fields': ['created_at', 'author_id'],
+        expansions: ['author_id'],
+        'user.fields': ['username'],
+      });
+      return userTimeline.data.data.map(tweet => ({
+        ...tweet,
+        account: `@${username}`
+      }));
     } catch (error) {
-      console.error('Error fetching tweets:', error);
-      setError("Failed to fetch tweets");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const connectWebSocket = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}`;
-
-    console.log("Connecting to WebSocket URL:", wsUrl);
-
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-      setIsConnected(true);
-      setError(null);
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setError("Failed to connect to WebSocket");
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-      setIsConnected(false);
-      setTimeout(() => connectWebSocket(), 5000); // Try to reconnect after 5 seconds
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const newTweets = JSON.parse(event.data);
-        setTweets(prevTweets => {
-          const combinedTweets = [...newTweets, ...prevTweets];
-          // Remove duplicates and sort by date
-          const uniqueTweets = Array.from(new Set(combinedTweets.map(t => t.id)))
-            .map(id => combinedTweets.find(t => t.id === id))
-            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-          return uniqueTweets.slice(0, 100); // Limit to 100 tweets
-        });
-      } catch (error) {
-        console.error("Error processing WebSocket message:", error);
+      if (error.code === 429) {
+        retries++;
+        const delay = Math.pow(2, retries) * 1000; // Exponential backoff
+        console.log(`Rate limited. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
       }
-    };
-
-    return ws;
-  }, []);
-
-  useEffect(() => {
-    fetchTweets();
-    const ws = connectWebSocket();
-    return () => ws.close();
-  }, [connectWebSocket]);
-
-  const handleSearch = () => {
-    if (searchQuery) {
-      const filteredTweets = tweets.filter(tweet => 
-        tweet.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tweet.account.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-      setTweets(filteredTweets);
-    } else {
-      fetchTweets(); // Reset to all tweets if search query is empty
     }
-  };
+  }
+  throw new Error('Max retries reached. Unable to fetch tweets.');
+}
 
-  const handleRefresh = () => {
-    fetchTweets();
-  };
+async function fetchAndStoreTweets() {
+  console.log('Starting to fetch and store tweets...');
+  for (const account of ACCOUNTS_TO_FOLLOW) {
+    try {
+      console.log(`Fetching tweets for ${account}...`);
+      const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
 
-  return (
-    <Box sx={{ maxWidth: 600, margin: 'auto', padding: 2 }}>
-      <Typography variant="h4" gutterBottom>
-        Twitter Updates
-      </Typography>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <TextField
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search tweets or accounts"
-          variant="outlined"
-          size="small"
-          sx={{ flexGrow: 1, mr: 1 }}
-        />
-        <Button variant="contained" onClick={handleSearch}>
-          Search
-        </Button>
-        <Button variant="outlined" onClick={handleRefresh} sx={{ ml: 1 }}>
-          Refresh
-        </Button>
-      </Box>
-      {error && (
-        <Typography color="error" sx={{ mb: 2 }}>
-          {error}
-        </Typography>
-      )}
-      <Typography color={isConnected ? "success.main" : "error.main"} sx={{ mb: 2 }}>
-        {isConnected ? "Connected to live updates" : "Disconnected from live updates"}
-      </Typography>
-      {isLoading ? (
-        <CircularProgress />
-      ) : (
-        <List>
-          {tweets.map((tweet) => (
-            <ListItem key={tweet.id} divider>
-              <ListItemText
-                primary={tweet.account}
-                secondary={
-                  <>
-                    <Typography component="span" variant="body2">
-                      {tweet.text}
-                    </Typography>
-                    <Typography component="span" variant="caption" display="block">
-                      {new Date(tweet.created_at).toLocaleString()}
-                    </Typography>
-                  </>
-                }
-              />
-            </ListItem>
-          ))}
-        </List>
-      )}
-    </Box>
-  );
-};
+      console.log(`Fetched ${newTweets.length} tweets for ${account}`);
 
-export default TwitterUpdates;
+      // Store new tweets in the database
+      const dbClient = await pool.connect();
+      try {
+        await dbClient.query('BEGIN');
+        for (const tweet of newTweets) {
+          await dbClient.query(
+            'INSERT INTO tweets (id, text, created_at, account) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
+            [tweet.id, tweet.text, tweet.created_at, tweet.account]
+          );
+        }
+        await dbClient.query('COMMIT');
+        console.log(`Stored tweets for ${account} in the database`);
+      } catch (e) {
+        await dbClient.query('ROLLBACK');
+        console.error(`Error storing tweets for ${account}:`, e);
+        throw e;
+      } finally {
+        dbClient.release();
+      }
+
+      // Broadcast new tweets to connected clients
+      wss.clients.forEach((wsClient) => {
+        if (wsClient.readyState === WebSocketServer.OPEN) {
+          wsClient.send(JSON.stringify(newTweets));
+        }
+      });
+      console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
+
+      // Add a delay between requests to different accounts
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    } catch (error) {
+      console.error(`Error fetching tweets for ${account}:`, error);
+    }
+  }
+  console.log('Finished fetching and storing tweets');
+}
+
+// Initialize the database and start fetching tweets
+async function initialize() {
+  await testDatabaseConnection();
+  await createTweetsTable();
+  await fetchAndStoreTweets();
+
+  // Run fetchAndStoreTweets every 30 minutes
+  setInterval(fetchAndStoreTweets, 30 * 60 * 1000);
+}
+
+initialize();
+
+// API endpoint to get tweets from the last 24 hours
+app.get('/api/tweets', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query('SELECT * FROM tweets WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC');
+    res.json(result.rows);
+    client.release();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'An error occurred while fetching tweets' });
+  }
+});
+
+// New test Twitter API endpoint
+app.get('/api/test-twitter', async (req, res) => {
+  try {
+    const tweets = await fetchTweetsWithBackoff('elonmusk');
+    console.log('Successfully fetched test tweets from Twitter API');
+    res.json(tweets);
+  } catch (error) {
+    console.error('Error fetching tweets:', error);
+    res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
+  }
+});
+
+// New test database endpoint
+app.get('/api/test-database', async (req, res) => {
+  try {
+    const client = await pool.connect();
+    const result = await client.query('SELECT * FROM tweets ORDER BY created_at DESC LIMIT 10');
+    client.release();
+    console.log(`Successfully fetched ${result.rows.length} tweets from database`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error querying database:', err);
+    res.status(500).json({ error: 'Failed to query database', details: err.message });
+  }
+});
+
+// WebSocket connection handling
+wss.on('connection', async (ws) => {
+  console.log('Client connected to WebSocket');
+  // Send current tweets to newly connected client
+  try {
+    const client = await pool.connect();
+    const result = await client.query('SELECT * FROM tweets WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC');
+    ws.send(JSON.stringify(result.rows));
+    console.log(`Sent ${result.rows.length} tweets to new WebSocket client`);
+    client.release();
+  } catch (err) {
+    console.error('Error sending initial tweets to WebSocket client:', err);
+  }
+
+  ws.on('error', (error) => console.error('WebSocket error:', error));
+  ws.on('close', () => console.log('Client disconnected from WebSocket'));
+});
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../build', 'index.html'));
+});
+
+const PORT = process.env.PORT || 3002;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
