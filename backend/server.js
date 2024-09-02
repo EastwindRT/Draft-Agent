@@ -4,11 +4,20 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import cors from 'cors';
 import pkg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 const { Pool } = pkg;
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, '../build')));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -147,6 +156,12 @@ wss.on('connection', async (ws) => {
   
   ws.on('error', console.error);
   ws.on('close', () => console.log('Client disconnected from WebSocket'));
+});
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../build', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3002;
