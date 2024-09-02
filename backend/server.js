@@ -69,19 +69,36 @@ async function createTweetsTable() {
   }
 }
 
+// Wrapper function with exponential backoff
+async function fetchWithRetry(fetchFunction, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fetchFunction();
+    } catch (error) {
+      if (error.code === 429 && i < maxRetries - 1) {
+        const delay = Math.pow(2, i) * 1000; // Exponential backoff
+        console.log(`Rate limited. Retrying in ${delay}ms`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
 async function fetchAndStoreTweets() {
   console.log('Starting to fetch and store tweets...');
   for (const account of ACCOUNTS_TO_FOLLOW) {
     try {
       console.log(`Fetching tweets for ${account}...`);
-      const user = await client.v2.userByUsername(account.replace('@', ''));
-      const userTimeline = await client.v2.userTimeline(user.data.id, {
+      const user = await fetchWithRetry(() => client.v2.userByUsername(account.replace('@', '')));
+      const userTimeline = await fetchWithRetry(() => client.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
         max_results: 100,
         'tweet.fields': ['created_at', 'author_id'],
         expansions: ['author_id'],
         'user.fields': ['username'],
-      });
+      }));
 
       const newTweets = userTimeline.data.data.map(tweet => ({
         ...tweet,
@@ -152,16 +169,18 @@ app.get('/api/tweets', async (req, res) => {
 // New test Twitter API endpoint
 app.get('/api/test-twitter', async (req, res) => {
   try {
-    const user = await client.v2.userByUsername('elonmusk');
-    const userTimeline = await client.v2.userTimeline(user.data.id, {
-      exclude: ['retweets', 'replies'],
-      max_results: 5,
-      'tweet.fields': ['created_at', 'author_id'],
-      expansions: ['author_id'],
-      'user.fields': ['username'],
+    const result = await fetchWithRetry(async () => {
+      const user = await client.v2.userByUsername('elonmusk');
+      return client.v2.userTimeline(user.data.id, {
+        exclude: ['retweets', 'replies'],
+        max_results: 5,
+        'tweet.fields': ['created_at', 'author_id'],
+        expansions: ['author_id'],
+        'user.fields': ['username'],
+      });
     });
     console.log('Successfully fetched test tweets from Twitter API');
-    res.json(userTimeline.data);
+    res.json(result.data);
   } catch (error) {
     console.error('Error fetching tweets:', error);
     res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
@@ -199,23 +218,7 @@ wss.on('connection', async (ws) => {
   ws.on('error', (error) => console.error('WebSocket error:', error));
   ws.on('close', () => console.log('Client disconnected from WebSocket'));
 });
-app.get('/api/test-twitter', async (req, res) => {
-  try {
-    const user = await client.v2.userByUsername('elonmusk');
-    const userTimeline = await client.v2.userTimeline(user.data.id, {
-      exclude: ['retweets', 'replies'],
-      max_results: 5,
-      'tweet.fields': ['created_at', 'author_id'],
-      expansions: ['author_id'],
-      'user.fields': ['username'],
-    });
-    console.log('Successfully fetched test tweets from Twitter API');
-    res.json(userTimeline.data);
-  } catch (error) {
-    console.error('Error fetching tweets:', error);
-    res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
-  }
-});
+
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get('*', (req, res) => {
