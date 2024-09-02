@@ -21,7 +21,7 @@ const LandingPage = () => {
         alignItems: 'center',
         textAlign: 'center',
         color: '#fff', // White text color for visibility
-        position: 'relative', // For debugging text
+        position: 'relative',
       }}
     >
       <Container maxWidth="lg">
@@ -49,7 +49,7 @@ const LandingPage = () => {
           >
             Choose your draft style and start building your dream team!
           </Typography>
-          <Box sx={{ mt: 8 }}> {/* Move buttons further down */}
+          <Box sx={{ mt: 8 }}>
             <Grid container spacing={2} justifyContent="center">
               <Grid item>
                 <Button
@@ -89,22 +89,6 @@ const LandingPage = () => {
           </Box>
         </Box>
       </Container>
-
-      {/* Debug information */}
-      <Typography 
-        variant="body2" 
-        sx={{ 
-          position: 'absolute', 
-          top: 0, 
-          left: 0, 
-          color: 'white', 
-          bgcolor: 'rgba(0,0,0,0.5)',
-          padding: '4px',
-          zIndex: 3
-        }}
-      >
-        Image path: {getImagePath()}
-      </Typography>
     </Box>
   );
 };

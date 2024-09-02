@@ -1,26 +1,35 @@
 import { useState, useEffect, useCallback } from 'react';
-import { TextField, Button, List, ListItem, ListItemText, Typography, Box } from '@mui/material';
+import { TextField, Button, List, ListItem, ListItemText, Typography, Box, CircularProgress } from '@mui/material';
 
 const TwitterUpdates = () => {
   const [tweets, setTweets] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchTweets = async () => {
+    try {
+      setIsLoading(true);
+      const response = await fetch('/api/tweets');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setTweets(data);
+      setError(null);
+    } catch (error) {
+      console.error('Error fetching tweets:', error);
+      setError("Failed to fetch tweets");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const connectWebSocket = useCallback(() => {
-    console.log("Attempting to connect to WebSocket");
-    
-    let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let host = window.location.host;
-    let wsUrl;
-
-    if (process.env.NODE_ENV === 'development') {
-      wsUrl = `${protocol}//localhost:3002`;
-    } else if (window.location.hostname.includes('replit.dev')) {
-      wsUrl = `wss://${host}`;
-    } else {
-      wsUrl = `${protocol}//${host}`;
-    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const wsUrl = `${protocol}//${host}`;
 
     console.log("Connecting to WebSocket URL:", wsUrl);
 
@@ -38,20 +47,25 @@ const TwitterUpdates = () => {
       setIsConnected(false);
     };
 
-    ws.onclose = (event) => {
-      console.log("WebSocket disconnected:", event.code, event.reason);
+    ws.onclose = () => {
+      console.log("WebSocket disconnected");
       setIsConnected(false);
       setTimeout(() => connectWebSocket(), 5000); // Try to reconnect after 5 seconds
     };
 
     ws.onmessage = (event) => {
-      console.log("Received WebSocket message:", event.data);
       try {
         const newTweets = JSON.parse(event.data);
-        setTweets(prevTweets => [...newTweets, ...prevTweets].slice(0, 10));
+        setTweets(prevTweets => {
+          const combinedTweets = [...newTweets, ...prevTweets];
+          // Remove duplicates and sort by date
+          const uniqueTweets = Array.from(new Set(combinedTweets.map(t => t.id)))
+            .map(id => combinedTweets.find(t => t.id === id))
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          return uniqueTweets.slice(0, 100); // Limit to 100 tweets
+        });
       } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
-        setError("Error processing tweets");
+        console.error("Error processing WebSocket message:", error);
       }
     };
 
@@ -59,71 +73,79 @@ const TwitterUpdates = () => {
   }, []);
 
   useEffect(() => {
+    fetchTweets();
     const ws = connectWebSocket();
-    return () => {
-      console.log("Closing WebSocket connection");
-      ws.close();
-    };
+    return () => ws.close();
   }, [connectWebSocket]);
 
-  const handleSearch = async () => {
-    try {
-      const response = await fetch('/api/search-tweets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: searchQuery }),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setTweets(data);
-      setError(null);
-    } catch (error) {
-      console.error('Error searching tweets:', error);
-      setError("Failed to search tweets");
+  const handleSearch = () => {
+    if (searchQuery) {
+      const filteredTweets = tweets.filter(tweet => 
+        tweet.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tweet.account.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setTweets(filteredTweets);
+    } else {
+      fetchTweets(); // Reset to all tweets if search query is empty
     }
+  };
+
+  const handleRefresh = () => {
+    fetchTweets();
   };
 
   return (
     <Box sx={{ maxWidth: 600, margin: 'auto', padding: 2 }}>
-      <TextField
-        fullWidth
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        placeholder="Search tweets or hashtags"
-        margin="normal"
-      />
-      <Button variant="contained" onClick={handleSearch} sx={{ mt: 1, mb: 2 }}>
-        Search
-      </Button>
+      <Typography variant="h4" gutterBottom>
+        Twitter Updates
+      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <TextField
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search tweets or accounts"
+          variant="outlined"
+          size="small"
+          sx={{ flexGrow: 1, mr: 1 }}
+        />
+        <Button variant="contained" onClick={handleSearch}>
+          Search
+        </Button>
+        <Button variant="outlined" onClick={handleRefresh} sx={{ ml: 1 }}>
+          Refresh
+        </Button>
+      </Box>
       {error && (
         <Typography color="error" sx={{ mb: 2 }}>
           {error}
         </Typography>
       )}
-      <Typography color={isConnected ? "success" : "error"} sx={{ mb: 2 }}>
+      <Typography color={isConnected ? "success.main" : "error.main"} sx={{ mb: 2 }}>
         {isConnected ? "Connected to live updates" : "Disconnected from live updates"}
       </Typography>
-      <List>
-        {tweets.map((tweet, index) => (
-          <ListItem key={tweet.id || index} divider>
-            <ListItemText
-              primary={tweet.account || "Unknown Account"}
-              secondary={
-                <>
-                  <Typography component="span" variant="body2">
-                    {tweet.text}
-                  </Typography>
-                  <Typography component="span" variant="caption" display="block">
-                    {new Date(tweet.created_at).toLocaleString()}
-                  </Typography>
-                </>
-              }
-            />
-          </ListItem>
-        ))}
-      </List>
+      {isLoading ? (
+        <CircularProgress />
+      ) : (
+        <List>
+          {tweets.map((tweet) => (
+            <ListItem key={tweet.id} divider>
+              <ListItemText
+                primary={tweet.account}
+                secondary={
+                  <>
+                    <Typography component="span" variant="body2">
+                      {tweet.text}
+                    </Typography>
+                    <Typography component="span" variant="caption" display="block">
+                      {new Date(tweet.created_at).toLocaleString()}
+                    </Typography>
+                  </>
+                }
+              />
+            </ListItem>
+          ))}
+        </List>
+      )}
     </Box>
   );
 };
