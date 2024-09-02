@@ -107,11 +107,11 @@ app.post('/api/search-tweets', async (req, res) => {
 });
 
 // Serve static files from the React app build directory
-app.use(express.static(path.join(__dirname, '..', 'dist')));
+app.use(express.static(path.join(__dirname, '..', 'build')));
 
 // The "catchall" handler: for any request that doesn't match one above, send back React's index.html file.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'build', 'index.html'));
 });
 
 // Determine the correct port
@@ -130,6 +130,5 @@ console.log('TWITTER_ACCESS_SECRET is set:', !!process.env.TWITTER_ACCESS_SECRET
 console.log('PORT:', process.env.PORT);
 console.log('Current directory:', process.cwd());
 console.log('__dirname:', __dirname);
-console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'dist'));
+console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'build'));
 
-console.log('Attempting to serve static files from:', path.join(__dirname, '..', 'public'));
