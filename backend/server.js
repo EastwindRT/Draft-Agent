@@ -17,40 +17,40 @@ async function fetchTweetsFromAccount(username, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       console.log(`Fetching tweets from account: ${username} (Attempt ${attempt + 1}/${maxRetries})`);
-      const user = await client.v2.userByUsername(username);
-      console.log(`Found user: ${JSON.stringify(user.data)}`);
 
-      const userTweets = await client.v2.userTimeline(user.data.id, {
-        exclude: ['retweets', 'replies'],
-        max_results: 5,
-        'tweet.fields': ['created_at', 'author_id', 'text'],
+      const searchResult = await client.v2.search(`from:${username} -is:retweet -is:reply`, {
+        'tweet.fields': ['created_at', 'author_id'],
+        'user.fields': ['username', 'name'],
         expansions: ['author_id'],
-        'user.fields': ['username', 'name']
+        max_results: 10
       });
 
-      const tweets = userTweets.data.data.map(tweet => ({
+      const tweets = searchResult.data.map(tweet => ({
         id: tweet.id,
         text: tweet.text,
         created_at: tweet.created_at,
-        username: user.data.username,
-        name: user.data.name
+        username: username,
+        name: searchResult.includes.users.find(user => user.id === tweet.author_id).name
       }));
 
       console.log(`Successfully fetched ${tweets.length} tweets for ${username}`);
       return tweets;
     } catch (error) {
-      if (error.code === 429) {
-        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-        console.log(`Rate limit hit. Waiting for ${delay}ms before retry...`);
+      console.error(`Error fetching tweets for ${username}:`, error);
+      if (error.code) {
+        console.error(`Error code: ${error.code}`);
+      }
+      if (error.data) {
+        console.error('Error data:', error.data);
+      }
+      if (error.rateLimit) {
+        console.error('Rate limit info:', error.rateLimit);
+      }
+      if (attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
-        console.error(`Error fetching tweets for ${username}:`, error);
-        if (error.code) {
-          console.error(`Error code: ${error.code}`);
-        }
-        if (error.data) {
-          console.error('Error data:', error.data);
-        }
         throw error;
       }
     }
@@ -78,19 +78,11 @@ app.get('/api/fetch-tweets/:username', async (req, res) => {
     res.json({ status: 'success', data: tweets });
   } catch (error) {
     console.error(`Error in /api/fetch-tweets/${username}:`, error);
-    if (error.message.includes('after 3 attempts')) {
-      res.status(429).json({ 
-        status: 'error', 
-        message: `Rate limit exceeded. Please try again later.`,
-        error: error.message 
-      });
-    } else {
-      res.status(500).json({ 
-        status: 'error', 
-        message: `Failed to fetch tweets for ${username}.`,
-        error: error.message 
-      });
-    }
+    res.status(500).json({ 
+      status: 'error', 
+      message: `Failed to fetch tweets for ${username}.`,
+      error: error.message 
+    });
   }
 });
 
