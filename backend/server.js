@@ -11,40 +11,54 @@ const client = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
-async function testTwitterApiConnection() {
+const ACCOUNTS_TO_FOLLOW = ['NBA', 'espn', 'BleacherReport', 'Ontheblock09', 'elonmusk', 'wojespn'];
+
+async function fetchTweetsFromAccounts(accounts, maxTweets = 10) {
   try {
-    console.log('Testing Twitter API connection...');
+    console.log(`Fetching tweets from accounts: ${accounts.join(', ')}`);
+    const tweets = [];
 
-    // Attempt to get the authenticated user's information
-    const result = await client.v2.me();
+    for (const account of accounts) {
+      const user = await client.v2.userByUsername(account);
+      const userTweets = await client.v2.userTimeline(user.data.id, {
+        exclude: ['retweets', 'replies'],
+        max_results: maxTweets,
+        'tweet.fields': ['created_at', 'author_id'],
+        expansions: ['author_id'],
+        'user.fields': ['username']
+      });
 
-    console.log('Successfully connected to Twitter API');
-    console.log('Authenticated user:', result.data);
-    return true;
+      tweets.push(...userTweets.data.data.map(tweet => ({
+        ...tweet,
+        username: account
+      })));
+    }
+
+    console.log(`Successfully fetched ${tweets.length} tweets`);
+    return tweets;
   } catch (error) {
-    console.error('Error connecting to Twitter API:', error);
-    if (error.code) {
-      console.error(`Error code: ${error.code}`);
-    }
-    if (error.data) {
-      console.error('Error data:', error.data);
-    }
-    return false;
+    console.error('Error fetching tweets:', error);
+    throw error;
   }
 }
 
-// API endpoint to test Twitter connection
-app.get('/api/test-twitter-connection', async (req, res) => {
-  const success = await testTwitterApiConnection();
-  if (success) {
-    res.json({ status: 'success', message: 'Twitter API connection successful. Check server logs for details.' });
-  } else {
-    res.status(500).json({ status: 'error', message: 'Failed to connect to Twitter API. Check server logs for details.' });
+// Root route
+app.get('/', (req, res) => {
+  res.send('Server is running. Use /api/fetch-tweets to fetch tweets from specified accounts.');
+});
+
+// API endpoint to fetch tweets
+app.get('/api/fetch-tweets', async (req, res) => {
+  try {
+    const tweets = await fetchTweetsFromAccounts(ACCOUNTS_TO_FOLLOW);
+    res.json({ status: 'success', data: tweets });
+  } catch (error) {
+    console.error('Error in /api/fetch-tweets:', error);
+    res.status(500).json({ status: 'error', message: 'Failed to fetch tweets. Check server logs for details.' });
   }
 });
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  testTwitterApiConnection(); // Test connection on startup
 });
