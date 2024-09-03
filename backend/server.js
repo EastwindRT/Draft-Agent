@@ -77,28 +77,30 @@ async function testTwitterApiConnection() {
   try {
     console.log('Testing Twitter API connection...');
 
-    // Fetch a single recent tweet from a popular account (e.g., @Twitter)
-    const result = await client.v2.search('from:Twitter', {
-      max_results: 1,
-      'tweet.fields': ['created_at', 'author_id'],
-      expansions: ['author_id'],
-      'user.fields': ['username']
+    // Fetch user details instead of searching for tweets
+    const result = await client.v2.user('Twitter', {
+      'user.fields': ['description', 'created_at']
     });
 
-    if (result.data && result.data.length > 0) {
-      const tweet = result.data[0];
-      const user = result.includes.users[0];
-      console.log('Successfully retrieved a tweet:');
-      console.log(`User: @${user.username}`);
-      console.log(`Tweet: ${tweet.text}`);
-      console.log(`Created at: ${tweet.created_at}`);
+    if (result.data) {
+      console.log('Successfully retrieved user details:');
+      console.log(`Username: @${result.data.username}`);
+      console.log(`Name: ${result.data.name}`);
+      console.log(`Description: ${result.data.description}`);
+      console.log(`Created at: ${result.data.created_at}`);
       return true;
     } else {
-      console.log('No tweets found, but API request was successful.');
+      console.log('User not found, but API request was successful.');
       return true;
     }
   } catch (error) {
     console.error('Error testing Twitter API connection:', error);
+    if (error.code) {
+      console.error(`Error code: ${error.code}`);
+    }
+    if (error.data) {
+      console.error('Error data:', error.data);
+    }
     return false;
   }
 }
