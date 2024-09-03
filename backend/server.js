@@ -1,36 +1,9 @@
 import express from 'express';
 import { TwitterApi } from 'twitter-api-v2';
-import { WebSocketServer } from 'ws';
-import http from 'http';
-import cors from 'cors';
-import pkg from 'pg';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const { Pool } = pkg;
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
-app.use(express.json());
 
-// Serve static files from the React app
-app.use(express.static(path.join(__dirname, '../build')));
-
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
-// PostgreSQL setup
-const pool = new Pool({
-  connectionString: process.env.EXTERNAL_DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
-});
-
-// Twitter API setup with OAuth 1.0a
+// Twitter API setup
 const client = new TwitterApi({
   appKey: process.env.TWITTER_API_KEY,
   appSecret: process.env.TWITTER_API_SECRET,
@@ -38,147 +11,40 @@ const client = new TwitterApi({
   accessSecret: process.env.TWITTER_ACCESS_SECRET,
 });
 
-const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@Ontheblock09', '@elonmusk', '@wojespn'];
-
-async function testDatabaseConnection() {
+async function testTwitterApiConnection() {
   try {
-    const client = await pool.connect();
-    console.log('Successfully connected to the database');
-    client.release();
-  } catch (err) {
-    console.error('Error connecting to the database:', err);
-  }
-}
+    console.log('Testing Twitter API connection...');
 
-async function createTweetsTable() {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS tweets (
-        id TEXT PRIMARY KEY,
-        text TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL,
-        account TEXT NOT NULL
-      )
-    `);
-    console.log('Tweets table created successfully');
-  } catch (err) {
-    console.error('Error creating tweets table:', err);
-  } finally {
-    client.release();
-  }
-}
+    // Attempt to get the authenticated user's information
+    const result = await client.v2.me();
 
-async function fetchAndStoreTweets() {
-  console.log('Starting to fetch and store tweets...');
-  for (const account of ACCOUNTS_TO_FOLLOW) {
-    try {
-      console.log(`Fetching tweets for ${account}...`);
-      const user = await client.v2.userByUsername(account.replace('@', ''));
-      const userTimeline = await client.v2.userTimeline(user.data.id, {
-        exclude: ['retweets', 'replies'],
-        max_results: 10,
-        'tweet.fields': ['created_at', 'author_id'],
-        expansions: ['author_id'],
-        'user.fields': ['username'],
-      });
-
-      const newTweets = userTimeline.data.data.map(tweet => ({
-        ...tweet,
-        account: account
-      }));
-
-      console.log(`Fetched ${newTweets.length} tweets for ${account}`);
-
-      // Store new tweets in the database
-      const dbClient = await pool.connect();
-      try {
-        await dbClient.query('BEGIN');
-        for (const tweet of newTweets) {
-          await dbClient.query(
-            'INSERT INTO tweets (id, text, created_at, account) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
-            [tweet.id, tweet.text, tweet.created_at, tweet.account]
-          );
-        }
-        await dbClient.query('COMMIT');
-        console.log(`Stored tweets for ${account} in the database`);
-      } catch (e) {
-        await dbClient.query('ROLLBACK');
-        console.error(`Error storing tweets for ${account}:`, e);
-        throw e;
-      } finally {
-        dbClient.release();
-      }
-
-      // Broadcast new tweets to connected clients
-      wss.clients.forEach((wsClient) => {
-        if (wsClient.readyState === WebSocketServer.OPEN) {
-          wsClient.send(JSON.stringify(newTweets));
-        }
-      });
-      console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
-    } catch (error) {
-      console.error(`Error fetching tweets for ${account}:`, error);
-      console.error('Error details:', error.data);
-      if (error.code === 429) {
-        console.log('Rate limit exceeded. Waiting before next request...');
-        await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000)); // Wait 15 minutes
-      }
+    console.log('Successfully connected to Twitter API');
+    console.log('Authenticated user:', result.data);
+    return true;
+  } catch (error) {
+    console.error('Error connecting to Twitter API:', error);
+    if (error.code) {
+      console.error(`Error code: ${error.code}`);
     }
+    if (error.data) {
+      console.error('Error data:', error.data);
+    }
+    return false;
   }
-  console.log('Finished fetching and storing tweets');
 }
 
-// Initialize the database and start fetching tweets
-async function initialize() {
-  await testDatabaseConnection();
-  await createTweetsTable();
-  await fetchAndStoreTweets();
-
-  // Run fetchAndStoreTweets every 30 minutes
-  setInterval(fetchAndStoreTweets, 30 * 60 * 1000);
-}
-
-initialize();
-
-// API endpoint to get tweets from the last 24 hours
-app.get('/api/tweets', async (req, res) => {
-  try {
-    const client = await pool.connect();
-    const result = await client.query('SELECT * FROM tweets WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC');
-    res.json(result.rows);
-    client.release();
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'An error occurred while fetching tweets' });
+// API endpoint to test Twitter connection
+app.get('/api/test-twitter-connection', async (req, res) => {
+  const success = await testTwitterApiConnection();
+  if (success) {
+    res.json({ status: 'success', message: 'Twitter API connection successful. Check server logs for details.' });
+  } else {
+    res.status(500).json({ status: 'error', message: 'Failed to connect to Twitter API. Check server logs for details.' });
   }
-});
-
-// WebSocket connection handling
-wss.on('connection', async (ws) => {
-  console.log('Client connected to WebSocket');
-  // Send current tweets to newly connected client
-  try {
-    const client = await pool.connect();
-    const result = await client.query('SELECT * FROM tweets WHERE created_at > NOW() - INTERVAL \'24 hours\' ORDER BY created_at DESC');
-    ws.send(JSON.stringify(result.rows));
-    console.log(`Sent ${result.rows.length} tweets to new WebSocket client`);
-    client.release();
-  } catch (err) {
-    console.error('Error sending initial tweets to WebSocket client:', err);
-  }
-
-  ws.on('error', (error) => console.error('WebSocket error:', error));
-  ws.on('close', () => console.log('Client disconnected from WebSocket'));
-});
-
-// The "catchall" handler: for any request that doesn't
-// match one above, send back React's index.html file.
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../build', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3002;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  testTwitterApiConnection(); // Test connection on startup
 });
