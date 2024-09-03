@@ -6,6 +6,7 @@ import cors from 'cors';
 import pkg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import Queue from 'bull';
 
 const { Pool } = pkg;
 
@@ -40,6 +41,9 @@ const client = new TwitterApi({
 
 const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@Ontheblock09', '@elonmusk', '@wojespn'];
 
+// Setup Bull queue
+const tweetQueue = new Queue('tweet-fetching', process.env.REDIS_URL);
+
 async function testDatabaseConnection() {
   try {
     const client = await pool.connect();
@@ -69,7 +73,7 @@ async function createTweetsTable() {
   }
 }
 
-async function fetchTweetsWithBackoff(username, maxRetries = 5) {
+async function fetchTweetsWithBackoff(username, maxRetries = 10) {
   let retries = 0;
   while (retries < maxRetries) {
     try {
@@ -88,7 +92,7 @@ async function fetchTweetsWithBackoff(username, maxRetries = 5) {
     } catch (error) {
       if (error.code === 429) {
         retries++;
-        const delay = Math.pow(2, retries) * 1000; // Exponential backoff
+        const delay = Math.min(Math.pow(2, retries) * 1000, 60000); // Max delay of 1 minute
         console.log(`Rate limited. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
@@ -99,57 +103,64 @@ async function fetchTweetsWithBackoff(username, maxRetries = 5) {
   throw new Error('Max retries reached. Unable to fetch tweets.');
 }
 
-async function fetchAndStoreTweets() {
-  console.log('Starting to fetch and store tweets...');
-  for (const account of ACCOUNTS_TO_FOLLOW) {
-    try {
-      console.log(`Fetching tweets for ${account}...`);
-      const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
-
-      console.log(`Fetched ${newTweets.length} tweets for ${account}`);
-
-      // Store new tweets in the database
-      const dbClient = await pool.connect();
-      try {
-        await dbClient.query('BEGIN');
-        for (const tweet of newTweets) {
-          await dbClient.query(
-            'INSERT INTO tweets (id, text, created_at, account) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
-            [tweet.id, tweet.text, tweet.created_at, tweet.account]
-          );
-        }
-        await dbClient.query('COMMIT');
-        console.log(`Stored tweets for ${account} in the database`);
-      } catch (e) {
-        await dbClient.query('ROLLBACK');
-        console.error(`Error storing tweets for ${account}:`, e);
-        throw e;
-      } finally {
-        dbClient.release();
-      }
-
-      // Broadcast new tweets to connected clients
-      wss.clients.forEach((wsClient) => {
-        if (wsClient.readyState === WebSocketServer.OPEN) {
-          wsClient.send(JSON.stringify(newTweets));
-        }
-      });
-      console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
-    } catch (error) {
-      console.error(`Error processing tweets for ${account}:`, error);
+async function storeTweets(tweets) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const tweet of tweets) {
+      await client.query(
+        'INSERT INTO tweets (id, text, created_at, account) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
+        [tweet.id, tweet.text, tweet.created_at, tweet.account]
+      );
     }
+    await client.query('COMMIT');
+    console.log(`Stored ${tweets.length} tweets in the database`);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error(`Error storing tweets:`, e);
+    throw e;
+  } finally {
+    client.release();
   }
-  console.log('Finished fetching and storing tweets');
+}
+
+async function processTweetJob(job) {
+  const { account } = job.data;
+  try {
+    console.log(`Fetching tweets for ${account}...`);
+    const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
+    console.log(`Fetched ${newTweets.length} tweets for ${account}`);
+    
+    await storeTweets(newTweets);
+
+    // Broadcast new tweets to connected clients
+    wss.clients.forEach((wsClient) => {
+      if (wsClient.readyState === WebSocketServer.OPEN) {
+        wsClient.send(JSON.stringify(newTweets));
+      }
+    });
+    console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
+  } catch (error) {
+    console.error(`Error processing tweets for ${account}:`, error);
+  }
+}
+
+function scheduleTweetFetching() {
+  ACCOUNTS_TO_FOLLOW.forEach((account, index) => {
+    tweetQueue.add({ account }, { 
+      repeat: { cron: '*/30 * * * *' },  // Run every 30 minutes
+      delay: index * 60000  // Stagger initial runs by 1 minute each
+    });
+  });
 }
 
 async function initialize() {
   await testDatabaseConnection();
   await createTweetsTable();
-  await fetchAndStoreTweets();
-
-  // Run fetchAndStoreTweets every 30 minutes
-  setInterval(fetchAndStoreTweets, 30 * 60 * 1000);
+  scheduleTweetFetching();
 }
+
+tweetQueue.process(processTweetJob);
 
 initialize();
 
