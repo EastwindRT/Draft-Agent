@@ -6,7 +6,6 @@ import cors from 'cors';
 import pkg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import Queue from 'bull';
 
 const { Pool } = pkg;
 
@@ -19,7 +18,7 @@ app.use(express.json());
 
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, '../build')));
-//
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -40,9 +39,6 @@ const client = new TwitterApi({
 });
 
 const ACCOUNTS_TO_FOLLOW = ['@NBA', '@espn', '@BleacherReport', '@Ontheblock09', '@elonmusk', '@wojespn'];
-
-// Setup Bull queue
-const tweetQueue = new Queue('tweet-fetching', process.env.REDIS_URL);
 
 async function testDatabaseConnection() {
   try {
@@ -73,23 +69,27 @@ async function createTweetsTable() {
   }
 }
 
-async function fetchTweetsWithBackoff(username, maxRetries = 10) {
+async function fetchTweetsWithBackoff(username, maxRetries = 10, maxResults = 10) {
   let retries = 0;
   while (retries < maxRetries) {
     try {
+      console.log(`Attempting to fetch tweets for @${username}...`);
       const user = await client.v2.userByUsername(username);
+      console.log(`Found user ID for @${username}: ${user.data.id}`);
       const userTimeline = await client.v2.userTimeline(user.data.id, {
         exclude: ['retweets', 'replies'],
-        max_results: 100,
+        max_results: maxResults,
         'tweet.fields': ['created_at', 'author_id'],
         expansions: ['author_id'],
         'user.fields': ['username'],
       });
+      console.log(`Successfully fetched ${userTimeline.data.data.length} tweets for @${username}`);
       return userTimeline.data.data.map(tweet => ({
         ...tweet,
         account: `@${username}`
       }));
     } catch (error) {
+      console.error(`Error fetching tweets for @${username}:`, error);
       if (error.code === 429) {
         retries++;
         const delay = Math.min(Math.pow(2, retries) * 1000, 60000); // Max delay of 1 minute
@@ -100,7 +100,7 @@ async function fetchTweetsWithBackoff(username, maxRetries = 10) {
       }
     }
   }
-  throw new Error('Max retries reached. Unable to fetch tweets.');
+  throw new Error(`Max retries reached. Unable to fetch tweets for @${username}.`);
 }
 
 async function storeTweets(tweets) {
@@ -124,34 +124,45 @@ async function storeTweets(tweets) {
   }
 }
 
-async function processTweetJob(job) {
-  const { account } = job.data;
-  try {
-    console.log(`Fetching tweets for ${account}...`);
-    const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
-    console.log(`Fetched ${newTweets.length} tweets for ${account}`);
-    
-    await storeTweets(newTweets);
+async function fetchAndStoreTweets() {
+  console.log('Starting fetchAndStoreTweets cycle...');
+  for (const account of ACCOUNTS_TO_FOLLOW) {
+    try {
+      console.log(`Processing account: ${account}`);
+      const newTweets = await fetchTweetsWithBackoff(account.replace('@', ''));
+      console.log(`Fetched ${newTweets.length} tweets for ${account}`);
+      
+      if (newTweets.length > 0) {
+        await storeTweets(newTweets);
+        console.log(`Stored ${newTweets.length} tweets for ${account} in the database`);
 
-    // Broadcast new tweets to connected clients
-    wss.clients.forEach((wsClient) => {
-      if (wsClient.readyState === WebSocketServer.OPEN) {
-        wsClient.send(JSON.stringify(newTweets));
+        // Broadcast new tweets to connected clients
+        wss.clients.forEach((wsClient) => {
+          if (wsClient.readyState === WebSocketServer.OPEN) {
+            wsClient.send(JSON.stringify(newTweets));
+          }
+        });
+        console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
+      } else {
+        console.log(`No new tweets found for ${account}`);
       }
-    });
-    console.log(`Broadcasted ${newTweets.length} new tweets to ${wss.clients.size} clients`);
-  } catch (error) {
-    console.error(`Error processing tweets for ${account}:`, error);
+    } catch (error) {
+      console.error(`Error processing tweets for ${account}:`, error);
+    }
+    console.log(`Waiting 1 minute before processing next account...`);
+    await new Promise(resolve => setTimeout(resolve, 60000));
   }
+  console.log('Finished fetchAndStoreTweets cycle.');
 }
 
 function scheduleTweetFetching() {
-  ACCOUNTS_TO_FOLLOW.forEach((account, index) => {
-    tweetQueue.add({ account }, { 
-      repeat: { cron: '*/30 * * * *' },  // Run every 30 minutes
-      delay: index * 60000  // Stagger initial runs by 1 minute each
-    });
-  });
+  console.log('Setting up tweet fetching schedule...');
+  setInterval(() => {
+    console.log('Running scheduled tweet fetch...');
+    fetchAndStoreTweets();
+  }, 30 * 60 * 1000); // Run every 30 minutes
+  console.log('Initial tweet fetch on startup...');
+  fetchAndStoreTweets(); // Run immediately on startup
 }
 
 async function initialize() {
@@ -159,8 +170,6 @@ async function initialize() {
   await createTweetsTable();
   scheduleTweetFetching();
 }
-
-tweetQueue.process(processTweetJob);
 
 initialize();
 
@@ -177,21 +186,42 @@ app.get('/api/tweets', async (req, res) => {
   }
 });
 
-// New test Twitter API endpoint
-app.get('/api/test-twitter-single', async (req, res) => {
+// New endpoint to fetch tweets for a single account
+app.get('/api/fetch-account/:account', async (req, res) => {
+  const account = req.params.account;
+  console.log(`Received request to fetch tweets for ${account}`);
   try {
-    const account = '@elonmusk'; // You can change this to any account you want to test
     const tweets = await fetchTweetsWithBackoff(account.replace('@', ''));
-    console.log('Successfully fetched test tweets from Twitter API');
-    res.json(tweets);
-  } catch (error) {
-    console.error('Error fetching tweets:', error);
-    if (error.code === 429) {
-      res.status(429).json({ error: 'Rate limit reached', details: 'Please try again later' });
-    } else {
-      res.status(500).json({ error: 'Failed to fetch tweets', details: error.message });
+    console.log(`Fetched ${tweets.length} tweets for ${account}`);
+    if (tweets.length > 0) {
+      await storeTweets(tweets);
+      console.log(`Stored ${tweets.length} tweets for ${account} in the database`);
     }
+    res.json({ success: true, message: `Fetched and stored ${tweets.length} tweets for ${account}` });
+  } catch (error) {
+    console.error(`Error fetching tweets for ${account}:`, error);
+    res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// New endpoint to fetch recent tweets for all accounts
+app.get('/api/fetch-recent-tweets', async (req, res) => {
+  console.log('Received request to fetch recent tweets for all accounts');
+  const results = [];
+  for (const account of ACCOUNTS_TO_FOLLOW) {
+    try {
+      console.log(`Fetching tweets for ${account}`);
+      const tweets = await fetchTweetsWithBackoff(account.replace('@', ''), 10, 5);  // Fetch up to 5 tweets per account
+      console.log(`Fetched ${tweets.length} tweets for ${account}`);
+      results.push({ account, tweets });
+    } catch (error) {
+      console.error(`Error fetching tweets for ${account}:`, error);
+      results.push({ account, error: error.message });
+    }
+    // Wait for 10 seconds before processing the next account to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 10000));
+  }
+  res.json(results);
 });
 
 // WebSocket connection handling
