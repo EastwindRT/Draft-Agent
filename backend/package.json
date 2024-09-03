@@ -14,7 +14,8 @@
     "express": "^4.17.1",
     "pg": "^8.12.0",
     "twitter-api-v2": "^1.17.2",
-    "ws": "^8.2.3"
+    "ws": "^8.2.3",
+    "bull": "^4.10.4"
   },
   "devDependencies": {
     "nodemon": "^2.0.15"
