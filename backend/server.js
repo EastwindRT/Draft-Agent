@@ -12,6 +12,25 @@ const { Pool } = pkg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Check for required environment variables
+const requiredEnvVars = [
+  'TWITTER_API_KEY',
+  'TWITTER_API_SECRET',
+  'TWITTER_ACCESS_TOKEN',
+  'TWITTER_ACCESS_SECRET',
+  'EXTERNAL_DATABASE_URL'
+];
+
+requiredEnvVars.forEach(varName => {
+  if (!process.env[varName]) {
+    console.error(`Error: Environment variable ${varName} is not set.`);
+  } else {
+    const value = process.env[varName];
+    // Log the last 4 characters of each variable for verification
+    console.log(`${varName} is set. Last 4 characters: ****${value.substring(value.length - 4)}`);
+  }
+});
+
 const app = express();
 app.use(cors());
 app.use(express.json());
