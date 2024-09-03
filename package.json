@@ -23,16 +23,22 @@
     "@tailwindcss/aspect-ratio": "^0.4.2",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.10",
+    "bull": "^4.10.4",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^10.0.0",
     "express": "^4.19.2",
     "lucide-react": "^0.294.0",
+    "pg": "^8.12.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.3",
     "recharts": "^2.12.7",
     "tailwind-merge": "^2.0.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "twitter-api-v2": "^1.17.2",
+    "ws": "^8.2.3"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^15.2.3",
